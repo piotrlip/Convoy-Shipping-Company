@@ -34,15 +34,6 @@ def csv_writer(file_name, field_names, dict):
     w_file.close()
 
 
-def checking_file_name(name):
-    check = re.search(r'CHECKED', name[0])
-
-    if check is None:
-        return True
-    else:
-        return False
-
-
 def create_table(file_name):
     db_name = file_name[0].replace('[CHECKED]', '')
     conn = sqlite3.connect(f'{db_name}.s3db')
@@ -84,63 +75,88 @@ def create_table(file_name):
     else:
         return f'{count_records} records were inserted into {db_name}.s3db'
 
-def convert_to_json():
-    pass
+
+def convert_to_json(database_name):
+    conn = sqlite3.connect(f'{database_name}.s3db')
+    c = conn.cursor()
+    data = c.execute(f""" SELECT * FROM convoy""").fetchall()
+
+    col_name_list = [tuple[0] for tuple in c.description]
+    json_db = {'convoy': []}
+
+    vehicle_counter = 0
+
+    for element in data:
+        json_db['convoy'].append(dict(zip(col_name_list, element)))
+        vehicle_counter += 1
+
+    with open(f'{database_name}.json', 'w') as json_file:
+        json.dump(json_db, json_file)
+
+    if vehicle_counter == 1:
+        return f'1 vehicle was saved into {database_name}.json'
+    else:
+        return f'{vehicle_counter} vehicles were saved into {database_name}.json'
 
 
 print('Input file name')
-user_file_name = input().split('.')  # input().split('.') 'convoy.xlsx'.split('.') data_one_xlsx 'data_one_csv.csv'.split('.') 'data_big_xlsx[CHECKED].csv'
+user_file_name = 'data_one_chk[CHECKED].csv'.split(
+    '.')  # input().split('.') 'convoy.xlsx'.split('.') data_one_xlsx 'data_one_csv.csv'.split('.') 'data_big_xlsx[CHECKED].csv'
 
-task = checking_file_name(user_file_name)
+if re.search(r'csv|xlsx', user_file_name[1]) is not None:
 
-if task is True:
+    if re.search(r'CHECKED', user_file_name[0]) is None:
 
-    csv_file_name = None
+        csv_file_name = None
 
-    if user_file_name[1] == 'xlsx':
-        convert_xlxs_to_csv(user_file_name)
-        csv_file_name = f"{user_file_name[0]}.csv"
-    else:
-        csv_file_name = f"{user_file_name[0]}.csv"
+        if user_file_name[1] == 'xlsx':
+            convert_xlxs_to_csv(user_file_name)
+            csv_file_name = f"{user_file_name[0]}.csv"
+        else:
+            csv_file_name = f"{user_file_name[0]}.csv"
 
-    counter_cells = 0
-    counter_lines = 0
+        counter_cells = 0
+        counter_lines = 0
 
-    with open(csv_file_name, newline='') as cs:
-        file_reader = csv.DictReader(cs, delimiter=",")  # Create a reader object
+        with open(csv_file_name, newline='') as cs:
+            file_reader = csv.DictReader(cs, delimiter=",")  # Create a reader object
 
-        names = []
-        modified_dict_list = []
-        for line in file_reader:  # Read each line
+            names = []
+            modified_dict_list = []
+            for line in file_reader:  # Read each line
 
-            counter_lines += 1
-            row_dict = {}
+                counter_lines += 1
+                row_dict = {}
 
-            for key, value in line.items():
-                row_dict[key] = re.search(r'[0-9]+', value).group(0)
-                if re.search(r'[a-zA-z.]+', value) is not None:
-                    counter_cells += 1
-                if key not in names:
-                    names.append(key)
-            modified_dict_list.append(row_dict)
-    csv_writer(user_file_name[0], names, modified_dict_list)
+                for key, value in line.items():
+                    row_dict[key] = re.search(r'[0-9]+', value).group(0)
+                    if re.search(r'[a-zA-z.]+', value) is not None:
+                        counter_cells += 1
+                    if key not in names:
+                        names.append(key)
+                modified_dict_list.append(row_dict)
+        csv_writer(user_file_name[0], names, modified_dict_list)
 
-    if lines_counter(user_file_name) is not None:
-        if lines_counter(user_file_name) == 1:
-            print(f'{lines_counter(user_file_name)} line was added to {user_file_name[0]}.csv')
-        elif lines_counter(user_file_name) > 1:
-            print(f'{lines_counter(user_file_name)} lines were added to {user_file_name[0]}.csv')
-        #
-    if counter_cells == 1:
-        print(f'{counter_cells} cell was corrected in {user_file_name[0]}[CHECKED].csv')
-    else:
-        print(f'{counter_cells} cells were corrected in {user_file_name[0]}[CHECKED].csv')
+        if lines_counter(user_file_name) is not None:
+            if lines_counter(user_file_name) == 1:
+                print(f'{lines_counter(user_file_name)} line was added to {user_file_name[0]}.csv')
+            elif lines_counter(user_file_name) > 1:
+                print(f'{lines_counter(user_file_name)} lines were added to {user_file_name[0]}.csv')
+            #
+        if counter_cells == 1:
+            print(f'{counter_cells} cell was corrected in {user_file_name[0]}[CHECKED].csv')
+        else:
+            print(f'{counter_cells} cells were corrected in {user_file_name[0]}[CHECKED].csv')
 
-    new_table = create_table(f'{user_file_name[0]}[CHECKED].csv'.split('.'))
-    print(new_table)
+        new_table = create_table(f'{user_file_name[0]}[CHECKED].csv'.split('.'))
+        print(new_table)
+        print(convert_to_json(user_file_name[0]))
 
-else:
+    elif re.search(r'CHECKED', user_file_name[0]) is not None:
+        new_table = create_table(user_file_name)
+        print(new_table)
+        print(convert_to_json(user_file_name[0]))
 
-    new_table = create_table(user_file_name)
-    print(new_table)
 
+elif re.search(r's3db', user_file_name[1]) is not None:
+    print(convert_to_json(user_file_name[0]))
