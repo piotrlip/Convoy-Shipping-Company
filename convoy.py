@@ -4,7 +4,7 @@ import csv
 import re
 import sqlite3
 import json
-
+from lxml import etree
 
 # def create_connection(db_file):
 #     db_name = db_file.replace('[CHECKED]', '')
@@ -38,49 +38,56 @@ def create_table(file_name):
     db_name = file_name[0].replace('[CHECKED]', '')
     conn = sqlite3.connect(f'{db_name}.s3db')
     c = conn.cursor()
-    data_open = open(f'{file_name[0]}.{file_name[1]}', 'r')
-    data_to_write = [line.split(',') for line in data_open]
+    data_check = c.execute(f"""SELECT name FROM sqlite_master WHERE type='table' AND name='convoy'""").fetchone()
 
-    create_table_sql = f""" CREATE TABLE IF NOT EXISTS 
-                    convoy (
-                            {data_to_write[0][0]} INTEGER PRIMARY KEY ,
-                            {data_to_write[0][1]} INTEGER NOT NULL,
-                            {data_to_write[0][2]} INTEGER NOT NULL, 
-                            {data_to_write[0][3]} INTEGER NOT NULL 
-                            )"""
 
-    c.execute(create_table_sql)
-    conn.commit()
+    if data_check is None:
+        data_open = open(f'{file_name[0]}.{file_name[1]}', 'r')
+        data_to_write = [line.split(',') for line in data_open]
 
-    count_records = 0
-    for element in data_to_write[1:]:
-        insert_data_sql = f"""INSERT INTO convoy(
-                                                    {data_to_write[0][0]} , 
-                                                    {data_to_write[0][1]} , 
-                                                    {data_to_write[0][2]} , 
-                                                    {data_to_write[0][3]} )
-                            VALUES(
-                                                    '{element[0]}', 
-                                                    '{element[1]}', 
-                                                    '{element[2]}', 
-                                                    '{element[3]}') """
+        create_table_sql = f""" CREATE TABLE IF NOT EXISTS 
+                        convoy (
+                                {data_to_write[0][0]} INTEGER PRIMARY KEY,
+                                {data_to_write[0][1]} INTEGER NOT NULL,
+                                {data_to_write[0][2]} INTEGER NOT NULL, 
+                                {data_to_write[0][3]} INTEGER NOT NULL 
+                                )"""
 
-        c.execute(insert_data_sql)
+        c.execute(create_table_sql)
         conn.commit()
-        count_records += 1
-    conn.close()
 
-    if count_records == 1:
-        return f'{count_records} record was inserted into {db_name}.s3db'
-    else:
-        return f'{count_records} records were inserted into {db_name}.s3db'
+        count_records = 0
+        for element in data_to_write[1:]:
+            insert_data_sql = f"""INSERT INTO convoy(
+                                                        {data_to_write[0][0]} , 
+                                                        {data_to_write[0][1]} , 
+                                                        {data_to_write[0][2]} , 
+                                                        {data_to_write[0][3]} 
+                                                    )
+                                VALUES(
+                                                        '{int(element[0])}', 
+                                                        '{element[1]}', 
+                                                        '{element[2]}', 
+                                                        '{element[3]}'
+                                        ) """
+
+            c.execute(insert_data_sql)
+            conn.commit()
+            count_records += 1
+        conn.close()
+
+        if count_records == 1:
+            return f'{count_records} record was inserted into {db_name}.s3db'
+        else:
+            return f'{count_records} records were inserted into {db_name}.s3db'
 
 
 def convert_to_json(database_name):
-    conn = sqlite3.connect(f'{database_name}.s3db')
+    db_name = database_name.replace('[CHECKED]', '')
+    conn = sqlite3.connect(f'{db_name}.s3db')
     c = conn.cursor()
     data = c.execute(f""" SELECT * FROM convoy""").fetchall()
-
+    conn.close()
     col_name_list = [tuple[0] for tuple in c.description]
     json_db = {'convoy': []}
 
@@ -90,17 +97,51 @@ def convert_to_json(database_name):
         json_db['convoy'].append(dict(zip(col_name_list, element)))
         vehicle_counter += 1
 
-    with open(f'{database_name}.json', 'w') as json_file:
+    with open(f'{db_name}.json', 'w') as json_file:
         json.dump(json_db, json_file)
 
     if vehicle_counter == 1:
-        return f'1 vehicle was saved into {database_name}.json'
+        return f'1 vehicle was saved into {db_name}.json'
     else:
-        return f'{vehicle_counter} vehicles were saved into {database_name}.json'
+        return f'{vehicle_counter} vehicles were saved into {db_name}.json'
+
+
+def convert_to_xml(database_name):
+    db_name = database_name.replace('[CHECKED]', '')
+    conn = sqlite3.connect(f'{db_name}.s3db')
+    c = conn.cursor()
+    data = c.execute(f""" SELECT * FROM convoy""").fetchall()
+    conn.close()
+    col_name_list = [tuple[0] for tuple in c.description]
+
+    xml_text = ['<convoy>']
+    counter_vehicle = 0
+    for element in data:
+        row = f"""
+            <vehicle>
+                <{col_name_list[0]}>{element[0]}</{col_name_list[0]}>
+                <{col_name_list[1]}>{element[1]}</{col_name_list[1]}>
+                <{col_name_list[2]}>{element[2]}</{col_name_list[2]}>
+                <{col_name_list[3]}>{element[3]}</{col_name_list[3]}>
+            </vehicle>
+            """
+        xml_text.append(row)
+        counter_vehicle += 1
+    xml_text.append('</convoy>')
+    root = etree.fromstring(','.join(xml_text).replace(',',''))
+    tree = etree.ElementTree(root)
+    tree.write(f"{db_name}.xml")
+
+    if counter_vehicle == 1:
+        return f'1 vehicle was saved into {db_name}.xml'
+    else:
+        return f'{counter_vehicle} vehicles were saved into {db_name}.xml'
+
+
 
 
 print('Input file name')
-user_file_name = 'data_one_chk[CHECKED].csv'.split(
+user_file_name = input().split(
     '.')  # input().split('.') 'convoy.xlsx'.split('.') data_one_xlsx 'data_one_csv.csv'.split('.') 'data_big_xlsx[CHECKED].csv'
 
 if re.search(r'csv|xlsx', user_file_name[1]) is not None:
@@ -142,7 +183,7 @@ if re.search(r'csv|xlsx', user_file_name[1]) is not None:
                 print(f'{lines_counter(user_file_name)} line was added to {user_file_name[0]}.csv')
             elif lines_counter(user_file_name) > 1:
                 print(f'{lines_counter(user_file_name)} lines were added to {user_file_name[0]}.csv')
-            #
+
         if counter_cells == 1:
             print(f'{counter_cells} cell was corrected in {user_file_name[0]}[CHECKED].csv')
         else:
@@ -151,12 +192,14 @@ if re.search(r'csv|xlsx', user_file_name[1]) is not None:
         new_table = create_table(f'{user_file_name[0]}[CHECKED].csv'.split('.'))
         print(new_table)
         print(convert_to_json(user_file_name[0]))
+        print(convert_to_xml(user_file_name[0]))
 
     elif re.search(r'CHECKED', user_file_name[0]) is not None:
         new_table = create_table(user_file_name)
         print(new_table)
         print(convert_to_json(user_file_name[0]))
-
+        print(convert_to_xml(user_file_name[0]))
 
 elif re.search(r's3db', user_file_name[1]) is not None:
     print(convert_to_json(user_file_name[0]))
+    print(convert_to_xml(user_file_name[0]))
